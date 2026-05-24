@@ -593,7 +593,13 @@ let archivos = [];
 let apiKey = localStorage.getItem('gemini_api_key') || '';
 let sheetsUrl = localStorage.getItem(STORAGE_PREFIX + 'sheets_url') || '';
 let sheetsTab = localStorage.getItem(STORAGE_PREFIX + 'sheets_tab') || (esCaloto ? 'Caloto' : 'Girón');
-let webAppUrl = localStorage.getItem(STORAGE_PREFIX + 'webapp_url') || '';
+// URL del Apps Script Web App generado por MAR para Valeria (preconfigurado)
+const DEFAULT_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbz67X4dBB3UN2XM5xsGWZozT_IRJFl7Keo313Wg1QfMphRFKK2q-9bdDr1ntrPteWce/exec';
+let webAppUrl = localStorage.getItem(STORAGE_PREFIX + 'webapp_url') || DEFAULT_WEBAPP_URL;
+// Si nunca se ha guardado, persistir el default
+if (!localStorage.getItem(STORAGE_PREFIX + 'webapp_url')) {
+  localStorage.setItem(STORAGE_PREFIX + 'webapp_url', DEFAULT_WEBAPP_URL);
+}
 
 // Init
 if (apiKey) {
