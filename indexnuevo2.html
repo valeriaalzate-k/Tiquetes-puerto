@@ -755,7 +755,11 @@ Si un campo no es legible o no aparece, usa null. No agregues texto antes ni des
                 { text: prompt }
               ]
             }],
-            generationConfig: { temperature: 0, maxOutputTokens: 1000 }
+            generationConfig: {
+              temperature: 0,
+              maxOutputTokens: 2048,
+              responseMimeType: 'application/json'
+            }
           })
         }
       );
@@ -783,10 +787,34 @@ Si un campo no es legible o no aparece, usa null. No agregues texto antes ni des
       const jsonMatch = clean.match(/\{[\s\S]*\}/);
       if (jsonMatch) clean = jsonMatch[0];
 
+      // Intentar parsear, si falla intentar reparar JSON truncado
       try {
         return JSON.parse(clean);
-      } catch (e) {
-        throw new Error(`${modelo} — JSON inválido: ${clean.substring(0, 100)}...`);
+      } catch (e1) {
+        // Reparación: cerrar comillas y llaves abiertas
+        let reparado = clean;
+        // Si la última cosa abierta es una string sin cerrar, cerrarla
+        const ultimaComilla = reparado.lastIndexOf('"');
+        const ultimaLlave = reparado.lastIndexOf('{');
+        const ultimaCerrar = reparado.lastIndexOf('}');
+        if (ultimaCerrar < ultimaLlave) {
+          // Hay más { que } — agregar el cierre
+          // Primero cerrar la string si está abierta
+          const comillas = (reparado.match(/"/g) || []).length;
+          if (comillas % 2 !== 0) reparado += '"';
+          // Quitar coma final si la hay
+          reparado = reparado.replace(/,\s*$/, '');
+          // Agregar } faltantes
+          const aperturas = (reparado.match(/\{/g) || []).length;
+          const cierres  = (reparado.match(/\}/g) || []).length;
+          for (let i = 0; i < aperturas - cierres; i++) reparado += '}';
+        }
+        try {
+          return JSON.parse(reparado);
+        } catch (e2) {
+          // Si todo falla, mostrar el error completo y la respuesta de Gemini
+          throw new Error(`${modelo} — JSON no parseable.\n\nRespuesta de Gemini (primeros 500 chars):\n${clean.substring(0, 500)}\n\nError técnico: ${e1.message}`);
+        }
       }
     } catch (e) {
       ultimoError = e.message;
