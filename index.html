@@ -619,14 +619,22 @@ function renderPreviews() {
     const url = URL.createObjectURL(item.file);
     const div = document.createElement('div');
     div.className = 'preview-item';
-    const statusText = { pending: 'Pendiente', processing: 'Procesando...', done: '✓ Listo', error: 'Error' };
+    const statusText = { pending: 'Pendiente', processing: 'Procesando...', done: '✓ Listo', error: 'Error · ver detalle' };
+    const isError = item.status === 'error';
+    const errorAttr = isError ? `onclick="verErrorDetalle(${i})" style="cursor:pointer;text-decoration:underline;"` : '';
     div.innerHTML = `
       <img src="${url}" alt="Tiquete ${i+1}">
       ${item.status !== 'processing' ? `<button class="remove-btn" onclick="removeFile(${i})">×</button>` : ''}
-      <div class="status-badge ${item.status}">${statusText[item.status]}</div>
+      <div class="status-badge ${item.status}" ${errorAttr}>${statusText[item.status]}</div>
     `;
     grid.appendChild(div);
   });
+}
+
+function verErrorDetalle(i) {
+  const item = archivos[i];
+  const msg = item.errorMsg || 'Error desconocido. Abre la consola del navegador (F12) para más detalle.';
+  alert('Error procesando este tiquete:\n\n' + msg + '\n\n— Causas comunes:\n• API key inválida o sin permisos\n• Imagen muy grande o formato no soportado\n• Cuota de Gemini superada\n• Filtros de seguridad bloquearon la imagen');
 }
 
 function removeFile(i) {
@@ -685,7 +693,8 @@ async function procesarTiquetes() {
       renderResultCard(datos);
     } catch (e) {
       item.status = 'error';
-      console.error(e);
+      item.errorMsg = e.message || String(e);
+      console.error('Error procesando tiquete ' + (i+1) + ':', e);
     }
     renderPreviews();
     progressFill.style.width = `${((i+1) / archivos.length) * 100}%`;
@@ -728,31 +737,67 @@ Extrae EXACTAMENTE estos campos y responde SOLO con JSON válido, sin texto adic
 }
 Si un campo no es legible o no aparece, usa null. No agregues texto antes ni después del JSON.`;
 
-  const resp = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{
-          parts: [
-            { inline_data: { mime_type: mediaType, data: base64 } },
-            { text: prompt }
-          ]
-        }],
-        generationConfig: { temperature: 0, maxOutputTokens: 1000 }
-      })
-    }
-  );
+  // Probar modelos en orden de preferencia (de mejor a fallback)
+  const modelos = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+  let ultimoError = null;
 
-  if (!resp.ok) {
-    const err = await resp.json();
-    throw new Error(err.error?.message || `API error ${resp.status}`);
+  for (const modelo of modelos) {
+    try {
+      const resp = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{
+              parts: [
+                { inline_data: { mime_type: mediaType, data: base64 } },
+                { text: prompt }
+              ]
+            }],
+            generationConfig: { temperature: 0, maxOutputTokens: 1000 }
+          })
+        }
+      );
+
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        const msg = err.error?.message || `HTTP ${resp.status}`;
+        // Si es un error de modelo no encontrado, probar el siguiente
+        if (resp.status === 404 || /not found|model/i.test(msg)) {
+          ultimoError = `${modelo}: ${msg}`;
+          continue;
+        }
+        // Si es otro error (API key, cuota), no tiene sentido probar otro modelo
+        throw new Error(`${modelo} — ${msg}`);
+      }
+
+      const data = await resp.json();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!text) {
+        throw new Error(`${modelo} — Respuesta vacía de Gemini. Posible bloqueo de safety filters.`);
+      }
+
+      // Limpieza robusta: extraer JSON aunque venga con markdown o texto extra
+      let clean = text.trim().replace(/```json|```/g, '').trim();
+      const jsonMatch = clean.match(/\{[\s\S]*\}/);
+      if (jsonMatch) clean = jsonMatch[0];
+
+      try {
+        return JSON.parse(clean);
+      } catch (e) {
+        throw new Error(`${modelo} — JSON inválido: ${clean.substring(0, 100)}...`);
+      }
+    } catch (e) {
+      ultimoError = e.message;
+      // Si el error no es de modelo no encontrado, propagar inmediatamente
+      if (!/not found|404/i.test(e.message)) {
+        throw e;
+      }
+    }
   }
-  const data = await resp.json();
-  const text = data.candidates[0].content.parts[0].text.trim();
-  const clean = text.replace(/```json|```/g, '').trim();
-  return JSON.parse(clean);
+
+  throw new Error(ultimoError || 'No se pudo procesar con ningún modelo Gemini');
 }
 
 // ─── Render resultado ──────────────────────────────────────────
