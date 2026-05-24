@@ -594,11 +594,12 @@ let apiKey = localStorage.getItem('gemini_api_key') || '';
 let sheetsUrl = localStorage.getItem(STORAGE_PREFIX + 'sheets_url') || '';
 let sheetsTab = localStorage.getItem(STORAGE_PREFIX + 'sheets_tab') || (esCaloto ? 'Caloto' : 'Girón');
 // URL del Apps Script Web App generado por MAR para Valeria (preconfigurado)
-const DEFAULT_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbxVc8_TqCeeXR_SyjCu1Cr6wIZoyD44RNLO-nyuiwgxnDuq2AzsnocJKyGyG7JebpXA/exec';
+const DEFAULT_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbwwm3I5l7g5dnZ9K4grQQNRKSnZ1Cz2GOADMG7dEop-0BQRQUnIQQI7VgsMCHXQtad7/exec';
 // URLs viejas que deben ser reemplazadas automaticamente por la nueva
 const OLD_WEBAPP_URLS = [
   'https://script.google.com/macros/s/AKfycbz67X4dBB3UN2XM5xsGWZozT_IRJFl7Keo313Wg1QfMphRFKK2q-9bdDr1ntrPteWce/exec',
-  'https://script.google.com/macros/s/AKfycbzJCZkpWcjC4vYdOAHl-R_-YnlVzoV9Pn1-kn-UMZnloq2mrbzXbs9U3N9ECASYGCxw/exec'
+  'https://script.google.com/macros/s/AKfycbzJCZkpWcjC4vYdOAHl-R_-YnlVzoV9Pn1-kn-UMZnloq2mrbzXbs9U3N9ECASYGCxw/exec',
+  'https://script.google.com/macros/s/AKfycbxVc8_TqCeeXR_SyjCu1Cr6wIZoyD44RNLO-nyuiwgxnDuq2AzsnocJKyGyG7JebpXA/exec'
 ];
 let webAppUrl = localStorage.getItem(STORAGE_PREFIX + 'webapp_url') || DEFAULT_WEBAPP_URL;
 // Auto-migrar URLs viejas o vacias al default actual
