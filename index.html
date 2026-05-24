@@ -530,11 +530,43 @@
 <!-- Sheets Modal -->
 <div class="modal-overlay" id="sheetsModal">
   <div class="modal">
-    <h3>Google Sheets</h3>
-    <p>Pega la URL de tu Google Sheet y el nombre exacto de la pestaña donde deben caer los datos de esta planta.</p>
+    <h3>Conexión a Google Sheets</h3>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:8px;">1. URL de tu Google Sheet:</p>
     <input type="text" id="sheetsUrlInput" placeholder="https://docs.google.com/spreadsheets/d/...">
+    <p style="font-size:13px;color:var(--muted);margin-bottom:8px;margin-top:12px;">2. Nombre exacto de la pestaña:</p>
     <input type="text" id="sheetsTabInput" placeholder="Pestaña (ej: Girón o Caloto)">
+    <p style="font-size:13px;color:var(--muted);margin-bottom:8px;margin-top:12px;">3. URL del Apps Script Web App:</p>
+    <input type="text" id="webAppUrlInput" placeholder="https://script.google.com/macros/s/.../exec">
+    <p style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.4;">
+      💡 ¿Cómo obtener la URL del Apps Script? <a href="#" onclick="mostrarInstruccionesAppsScript(event)" style="color:var(--planta-color);font-weight:600;">Ver instrucciones</a>
+    </p>
     <button class="btn-modal-save" onclick="saveSheetsConfig()">Guardar configuración</button>
+  </div>
+</div>
+
+<!-- Instrucciones Apps Script Modal -->
+<div class="modal-overlay" id="instruccionesModal">
+  <div class="modal" style="max-width:600px;">
+    <h3>Configurar Apps Script (una sola vez)</h3>
+    <ol style="font-size:14px;line-height:1.7;color:var(--text);padding-left:20px;">
+      <li>Abre tu Google Sheet</li>
+      <li>Menú <b>Extensiones → Apps Script</b></li>
+      <li>Borra el código que aparece por defecto</li>
+      <li>Pega este código (ya lo copio al clipboard al cerrar este modal):
+        <details style="margin-top:6px;">
+          <summary style="cursor:pointer;color:var(--planta-color);">Ver código</summary>
+          <pre id="appsScriptCode" style="background:#f5f5f5;padding:10px;border-radius:6px;font-size:11px;overflow:auto;max-height:200px;font-family:monospace;"></pre>
+        </details>
+      </li>
+      <li>Click en el botón <b>Implementar → Nueva implementación</b></li>
+      <li>Tipo: <b>Aplicación web</b></li>
+      <li>Ejecutar como: <b>Yo (tu correo)</b></li>
+      <li>Quién tiene acceso: <b>Cualquier persona</b></li>
+      <li>Click <b>Implementar</b> y autoriza los permisos</li>
+      <li>Copia la <b>URL del Web App</b> que aparece</li>
+      <li>Pégala en el campo "URL del Apps Script Web App" de la configuración</li>
+    </ol>
+    <button class="btn-modal-save" onclick="copiarCodigoAppsScript()">📋 Copiar código y cerrar</button>
   </div>
 </div>
 
@@ -561,6 +593,7 @@ let archivos = [];
 let apiKey = localStorage.getItem('gemini_api_key') || '';
 let sheetsUrl = localStorage.getItem(STORAGE_PREFIX + 'sheets_url') || '';
 let sheetsTab = localStorage.getItem(STORAGE_PREFIX + 'sheets_tab') || (esCaloto ? 'Caloto' : 'Girón');
+let webAppUrl = localStorage.getItem(STORAGE_PREFIX + 'webapp_url') || '';
 
 // Init
 if (apiKey) {
@@ -587,19 +620,122 @@ function saveApiKey() {
 function openSheetsModal() {
   document.getElementById('sheetsUrlInput').value = sheetsUrl;
   document.getElementById('sheetsTabInput').value = sheetsTab;
+  document.getElementById('webAppUrlInput').value = webAppUrl;
   document.getElementById('sheetsModal').classList.add('open');
 }
 function saveSheetsConfig() {
   sheetsUrl = document.getElementById('sheetsUrlInput').value.trim();
   sheetsTab = document.getElementById('sheetsTabInput').value.trim() || (esCaloto ? 'Caloto' : 'Girón');
+  webAppUrl = document.getElementById('webAppUrlInput').value.trim();
   localStorage.setItem(STORAGE_PREFIX + 'sheets_url', sheetsUrl);
   localStorage.setItem(STORAGE_PREFIX + 'sheets_tab', sheetsTab);
+  localStorage.setItem(STORAGE_PREFIX + 'webapp_url', webAppUrl);
   document.getElementById('sheetsUrlDisplay').textContent = sheetsUrl || 'No configurado';
   document.getElementById('sheetsUrlDisplay').style.color = sheetsUrl ? 'var(--text)' : 'var(--muted)';
   document.getElementById('sheetsModal').classList.remove('open');
   document.getElementById('sheetsLink').href = sheetsUrl || '#';
   actualizarBoton();
-  showToast('✓ Sheets configurado');
+  showToast(webAppUrl ? '✓ Sheets + Apps Script configurados' : '⚠️ Configura el Apps Script para enviar a Sheets');
+}
+
+function mostrarInstruccionesAppsScript(e) {
+  if (e) e.preventDefault();
+  document.getElementById('appsScriptCode').textContent = window._APPS_SCRIPT_CODE;
+  document.getElementById('instruccionesModal').classList.add('open');
+}
+
+function copiarCodigoAppsScript() {
+  navigator.clipboard.writeText(window._APPS_SCRIPT_CODE).then(() => {
+    showToast('✓ Código copiado al portapapeles');
+    document.getElementById('instruccionesModal').classList.remove('open');
+  }).catch(() => {
+    showToast('No se pudo copiar — selecciona el código manualmente');
+  });
+}
+
+// Código del Apps Script que debe pegar el usuario en su Sheet
+window._APPS_SCRIPT_CODE = `function doPost(e) {
+  try {
+    const payload = JSON.parse(e.postData.contents);
+    const sheetUrl = payload.sheets_url;
+    const tabName = payload['pestaña'] || payload.pestana || payload.tab;
+    const tiquetes = payload.tiquetes || [];
+
+    if (!sheetUrl || !tabName) {
+      return ContentService.createTextOutput(JSON.stringify({
+        ok: false, error: 'Falta sheets_url o pestaña'
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    const ss = SpreadsheetApp.openByUrl(sheetUrl);
+    let sheet = ss.getSheetByName(tabName);
+    if (!sheet) sheet = ss.insertSheet(tabName);
+
+    const headers = [
+      'Fecha Registro', 'Planta', 'Báscula', 'N° Tiquete', 'Fecha Tiquete',
+      'Motonave', 'Producto', 'Toneladas', 'Placa Vehículo',
+      'Puerto Origen', 'Transportadora'
+    ];
+
+    if (sheet.getLastRow() === 0) {
+      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+      sheet.getRange(1, 1, 1, headers.length)
+        .setFontWeight('bold').setBackground('#1a5c3a').setFontColor('white');
+      sheet.setFrozenRows(1);
+    }
+
+    // Recolectar N° tiquetes ya registrados (evitar duplicados)
+    const existingNumbers = new Set();
+    const lastRow = sheet.getLastRow();
+    if (lastRow > 1) {
+      const ticketCol = headers.indexOf('N° Tiquete') + 1;
+      const existing = sheet.getRange(2, ticketCol, lastRow - 1, 1).getValues();
+      existing.forEach(r => { if (r[0]) existingNumbers.add(String(r[0]).trim()); });
+    }
+
+    const nuevos = [];
+    const duplicados = [];
+    tiquetes.forEach(t => {
+      const num = String(t.numero_tiquete || '').trim();
+      if (!num) return;
+      if (existingNumbers.has(num)) { duplicados.push(num); return; }
+      existingNumbers.add(num);
+      nuevos.push([
+        t.fecha_registro || new Date().toISOString(),
+        t.planta || '',
+        t.bascula || '',
+        num,
+        t.fecha || '',
+        t.motonave || '',
+        t.producto || '',
+        t.cantidad_toneladas || '',
+        t.placa_vehiculo || '',
+        t.puerto_origen || '',
+        t.transportadora || ''
+      ]);
+    });
+
+    if (nuevos.length > 0) {
+      sheet.getRange(sheet.getLastRow() + 1, 1, nuevos.length, headers.length).setValues(nuevos);
+    }
+
+    return ContentService.createTextOutput(JSON.stringify({
+      ok: true,
+      agregados: nuevos.length,
+      duplicados: duplicados.length,
+      duplicados_numeros: duplicados
+    })).setMimeType(ContentService.MimeType.JSON);
+
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({
+      ok: false, error: String(err)
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+function doGet() {
+  return ContentService.createTextOutput('Tiquetes Webhook OK - usa POST');
+}`;
 }
 
 // ─── Archivos ──────────────────────────────────────────────────
@@ -704,10 +840,19 @@ async function procesarTiquetes() {
   if (resultados.length > 0) {
     btnText.textContent = 'Enviando a Google Sheets...';
     try {
-      await enviarASheets(resultados);
-      showToast(`✓ ${resultados.length} tiquete(s) enviados a Sheets`);
+      const resp = await enviarASheets(resultados);
+      if (resp && resp.ok) {
+        let msg = `✓ ${resp.agregados} agregados`;
+        if (resp.duplicados > 0) msg += ` · ${resp.duplicados} duplicados (omitidos)`;
+        showToast(msg);
+      } else if (resp && resp.error) {
+        showToast(`⚠️ Error: ${resp.error}`);
+      } else {
+        // Caso sin Apps Script configurado
+        showToast(`⚠️ Configura el Apps Script en "Configurar" para enviar a Sheets`);
+      }
     } catch(e) {
-      showToast('Error enviando a Sheets — revisa la configuración');
+      showToast(`⚠️ Error enviando a Sheets: ${e.message}`);
       console.error(e);
     }
   }
@@ -865,17 +1010,19 @@ function renderResultCard(d) {
 
 // ─── Google Sheets via Apps Script ────────────────────────────
 async function enviarASheets(resultados) {
-  const webAppUrl = localStorage.getItem(STORAGE_PREFIX + 'webapp_url');
+  // webAppUrl es la variable global ya cargada de localStorage al inicio
   if (!webAppUrl) {
-    // Sin Apps Script configurado, guardar localmente
-    console.log('Datos para Sheets:', resultados);
-    showToast('💾 Datos listos — configura Apps Script para enviar a Sheets');
-    return;
+    console.log('Datos para Sheets (sin enviar):', resultados);
+    return null; // El caller mostrará el aviso de "configura Apps Script"
+  }
+  if (!sheetsUrl) {
+    return { ok: false, error: 'Falta URL del Google Sheet' };
   }
 
   const payload = {
+    sheets_url: sheetsUrl,
+    'pestaña': sheetsTab,
     planta: PLANTA_KEY,
-    pestaña: sheetsTab,
     tiquetes: resultados.map(d => ({
       ...d,
       planta: esCaloto ? 'Caloto' : 'Girón',
@@ -884,12 +1031,25 @@ async function enviarASheets(resultados) {
     }))
   };
 
-  await fetch(webAppUrl, {
+  // Apps Script Web Apps no aceptan preflight CORS con Content-Type JSON.
+  // Truco estándar: enviar como text/plain (Apps Script igual recibe el body como string parseable).
+  const resp = await fetch(webAppUrl, {
     method: 'POST',
-    mode: 'no-cors',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(payload),
+    redirect: 'follow'
   });
+
+  if (!resp.ok) {
+    return { ok: false, error: `HTTP ${resp.status} al enviar a Apps Script` };
+  }
+
+  try {
+    const data = await resp.json();
+    return data;
+  } catch (e) {
+    return { ok: false, error: 'Respuesta de Apps Script no es JSON. Verifica que esté publicado correctamente.' };
+  }
 }
 
 // ─── Utils ─────────────────────────────────────────────────────
