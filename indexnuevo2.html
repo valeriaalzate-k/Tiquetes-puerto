@@ -613,15 +613,31 @@ actualizarBoton();
 
 // ─── API Key ───────────────────────────────────────────────────
 function saveApiKey() {
-  const val = document.getElementById('apiKeyInput').value.trim();
-  if (!val.startsWith('AIza')) return showToast('Formato inválido — debe empezar por AIza');
+  let val = document.getElementById('apiKeyInput').value;
+  // Limpieza: quitar espacios visibles y todos los caracteres invisibles (zero-width, BOM, NBSP)
+  val = val.replace(/\s+/g, '');
+  val = val.replace(/[​-‍﻿ ]/g, '');
+  val = val.trim();
+
+  if (!val) {
+    return showToast('⚠️ Pega tu API key primero');
+  }
+  if (val.length < 20) {
+    return showToast('⚠️ Key muy corta (' + val.length + ' chars). Debe tener ~39 caracteres.');
+  }
+  // Aceptar cualquier key que parezca válida (Google es AIza..., aceptamos cualquier formato largo)
+  if (!/^[A-Za-z0-9_\-]{20,}$/.test(val)) {
+    return showToast('⚠️ La key contiene caracteres inválidos. Revísala.');
+  }
+
   apiKey = val;
   localStorage.setItem('gemini_api_key', apiKey);
+  document.getElementById('apiKeyInput').value = '••••••••' + val.slice(-4);
   document.getElementById('apiSaved').style.display = 'block';
-  setTimeout(() => { document.getElementById('apiBanner').style.display = 'none'; }, 1200);
+  setTimeout(function() { document.getElementById('apiBanner').style.display = 'none'; }, 1500);
   actualizarBoton();
+  showToast('✓ API key guardada (' + val.length + ' chars)');
 }
-
 // ─── Sheets config ─────────────────────────────────────────────
 function openSheetsModal() {
   document.getElementById('sheetsUrlInput').value = sheetsUrl;
