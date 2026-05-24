@@ -613,31 +613,54 @@ actualizarBoton();
 
 // ─── API Key ───────────────────────────────────────────────────
 function saveApiKey() {
-  let val = document.getElementById('apiKeyInput').value;
-  // Limpieza: quitar espacios visibles y todos los caracteres invisibles (zero-width, BOM, NBSP)
-  val = val.replace(/\s+/g, '');
-  val = val.replace(/[​-‍﻿ ]/g, '');
-  val = val.trim();
+  // Logs visibles en consola del navegador (F12) para diagnosticar
+  console.log('[saveApiKey] llamada');
+
+  const inputEl = document.getElementById('apiKeyInput');
+  if (!inputEl) {
+    alert('Error: no se encontro el campo de la API key. Reporta esto.');
+    return;
+  }
+
+  // Limpieza minimalista: solo trim (sin regex complicadas)
+  const val = (inputEl.value || '').trim();
+  console.log('[saveApiKey] valor:', val.length, 'chars');
 
   if (!val) {
-    return showToast('⚠️ Pega tu API key primero');
-  }
-  if (val.length < 20) {
-    return showToast('⚠️ Key muy corta (' + val.length + ' chars). Debe tener ~39 caracteres.');
-  }
-  // Aceptar cualquier key que parezca válida (Google es AIza..., aceptamos cualquier formato largo)
-  if (!/^[A-Za-z0-9_\-]{20,}$/.test(val)) {
-    return showToast('⚠️ La key contiene caracteres inválidos. Revísala.');
+    showToast('⚠️ Pega tu API key primero');
+    return;
   }
 
-  apiKey = val;
-  localStorage.setItem('gemini_api_key', apiKey);
-  document.getElementById('apiKeyInput').value = '••••••••' + val.slice(-4);
-  document.getElementById('apiSaved').style.display = 'block';
-  setTimeout(function() { document.getElementById('apiBanner').style.display = 'none'; }, 1500);
-  actualizarBoton();
-  showToast('✓ API key guardada (' + val.length + ' chars)');
+  // Sin validacion estricta - aceptar cualquier cosa no vacia
+  try {
+    localStorage.setItem('gemini_api_key', val);
+    apiKey = val;
+    console.log('[saveApiKey] guardado OK');
+  } catch (e) {
+    console.error('[saveApiKey] error localStorage:', e);
+    alert('Error guardando: ' + e.message);
+    return;
+  }
+
+  // Confirmar visualmente
+  inputEl.value = '••••••••' + val.slice(-4);
+  const saved = document.getElementById('apiSaved');
+  if (saved) saved.style.display = 'block';
+  setTimeout(function() {
+    const banner = document.getElementById('apiBanner');
+    if (banner) banner.style.display = 'none';
+  }, 1500);
+
+  if (typeof actualizarBoton === 'function') actualizarBoton();
+  showToast('✓ Key guardada (' + val.length + ' chars)');
 }
+
+// Funcion de utilidad: ver lo que hay en localStorage (desde consola)
+window.verApiKey = function() {
+  const k = localStorage.getItem('gemini_api_key');
+  console.log('API key en localStorage:', k ? k.substring(0, 6) + '...' + k.slice(-4) + ' (' + k.length + ' chars)' : 'NADA GUARDADO');
+  return k;
+};
 // ─── Sheets config ─────────────────────────────────────────────
 function openSheetsModal() {
   document.getElementById('sheetsUrlInput').value = sheetsUrl;
