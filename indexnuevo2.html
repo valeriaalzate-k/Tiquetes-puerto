@@ -594,10 +594,16 @@ let apiKey = localStorage.getItem('gemini_api_key') || '';
 let sheetsUrl = localStorage.getItem(STORAGE_PREFIX + 'sheets_url') || '';
 let sheetsTab = localStorage.getItem(STORAGE_PREFIX + 'sheets_tab') || (esCaloto ? 'Caloto' : 'Girón');
 // URL del Apps Script Web App generado por MAR para Valeria (preconfigurado)
-const DEFAULT_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbz67X4dBB3UN2XM5xsGWZozT_IRJFl7Keo313Wg1QfMphRFKK2q-9bdDr1ntrPteWce/exec';
+const DEFAULT_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbxVc8_TqCeeXR_SyjCu1Cr6wIZoyD44RNLO-nyuiwgxnDuq2AzsnocJKyGyG7JebpXA/exec';
+// URLs viejas que deben ser reemplazadas automaticamente por la nueva
+const OLD_WEBAPP_URLS = [
+  'https://script.google.com/macros/s/AKfycbz67X4dBB3UN2XM5xsGWZozT_IRJFl7Keo313Wg1QfMphRFKK2q-9bdDr1ntrPteWce/exec',
+  'https://script.google.com/macros/s/AKfycbzJCZkpWcjC4vYdOAHl-R_-YnlVzoV9Pn1-kn-UMZnloq2mrbzXbs9U3N9ECASYGCxw/exec'
+];
 let webAppUrl = localStorage.getItem(STORAGE_PREFIX + 'webapp_url') || DEFAULT_WEBAPP_URL;
-// Si nunca se ha guardado, persistir el default
-if (!localStorage.getItem(STORAGE_PREFIX + 'webapp_url')) {
+// Auto-migrar URLs viejas o vacias al default actual
+if (!localStorage.getItem(STORAGE_PREFIX + 'webapp_url') || OLD_WEBAPP_URLS.includes(webAppUrl)) {
+  webAppUrl = DEFAULT_WEBAPP_URL;
   localStorage.setItem(STORAGE_PREFIX + 'webapp_url', DEFAULT_WEBAPP_URL);
 }
 
@@ -917,7 +923,8 @@ Extrae EXACTAMENTE estos campos y responde SOLO con JSON válido, sin texto adic
 {
   "numero_tiquete": "número o código del tiquete",
   "motonave": "nombre de la motonave o barco",
-  "producto": "nombre del producto o materia prima",
+  "producto_original": "nombre del producto tal como aparece en el tiquete. Los productos esperados son: Yellow corn, Soybean meal, Yellow soybean, DDGS, Canola meal, Sunflower meal",
+  "origen": "país de origen del producto. Valores posibles: 'Americano' (EEUU/US), 'Boliviano', 'Argentino', 'Canadiense'. Buscar pistas en: descripción del producto, motonave, puerto de origen, transportadora. Si no se puede determinar, usar null.",
   "cantidad_toneladas": "cantidad numérica en toneladas",
   "placa_vehiculo": "placa del vehículo",
   "puerto_origen": "puerto de origen si aparece",
@@ -1017,10 +1024,55 @@ Si un campo no es legible o no aparece, usa null. No agregues texto antes ni des
   throw new Error(ultimoError || 'No se pudo procesar con ningún modelo Gemini');
 }
 
+// ─── Mapeo Producto Original → Spanish + Código ────────────────
+// Reglas: por defecto cada producto tiene un origen tipico; soybean meal
+// es el unico que cambia de codigo segun el origen.
+function mapearProducto(productoOriginal, origenDetectado) {
+  const txt = (productoOriginal || '').toLowerCase().trim();
+  const orig = (origenDetectado || '').toLowerCase().trim();
+
+  // DDGS (siempre americano)
+  if (txt.includes('ddgs')) {
+    return { origen: 'Americano', producto: 'DDGS', codigo: 'MA0101' };
+  }
+  // Canola meal (siempre canadiense)
+  if (txt.includes('canola')) {
+    return { origen: 'Canadiense', producto: 'Canola', codigo: 'MA0080' };
+  }
+  // Sunflower meal (siempre canadiense)
+  if (txt.includes('sunflower')) {
+    return { origen: 'Canadiense', producto: 'Torta de girasol', codigo: 'MA0087' };
+  }
+  // Yellow soybean / Frijol (chequear ANTES de soybean meal porque 'soybean' coincide)
+  if (txt.includes('yellow soybean') || (txt.includes('soybean') && !txt.includes('meal'))) {
+    return { origen: 'Americano', producto: 'Frijol', codigo: 'MA0056' };
+  }
+  // Soybean meal — único producto que cambia código por origen
+  if (txt.includes('soybean meal') || (txt.includes('soybean') && txt.includes('meal')) || txt.includes('torta de soya')) {
+    if (orig.includes('boliv')) {
+      return { origen: 'Boliviano', producto: 'Torta de soya boliviana', codigo: 'MA0043' };
+    }
+    if (orig.includes('argent')) {
+      return { origen: 'Argentino', producto: 'Torta de soya argentina', codigo: '—' };
+    }
+    // Por defecto: Americano
+    return { origen: 'Americano', producto: 'Torta de soya americana', codigo: 'MA0041' };
+  }
+  // Yellow corn / Maíz amarillo (siempre americano)
+  if (txt.includes('yellow corn') || txt.includes('corn') || txt.includes('maiz') || txt.includes('maíz')) {
+    return { origen: 'Americano', producto: 'Maíz amarillo', codigo: 'MA0001' };
+  }
+
+  // Sin match: devolver lo crudo (Valeria lo ajusta manualmente en el Sheet)
+  return { origen: origenDetectado || '', producto: productoOriginal || '', codigo: '' };
+}
+
 // ─── Render resultado ──────────────────────────────────────────
 function renderResultCard(d) {
   const list = document.getElementById('resultsList');
   document.getElementById('resultsSection').style.display = 'block';
+  // Calcular mapeo en vivo para mostrarlo en la card
+  const mapeo = mapearProducto(d.producto_original || d.producto, d.origen);
   const card = document.createElement('div');
   card.className = 'result-card';
   card.innerHTML = `
@@ -1034,8 +1086,16 @@ function renderResultCard(d) {
         <div class="result-field-value">${d.motonave || '—'}</div>
       </div>
       <div class="result-field">
+        <div class="result-field-label">Origen</div>
+        <div class="result-field-value">${mapeo.origen || '—'}</div>
+      </div>
+      <div class="result-field">
         <div class="result-field-label">Producto</div>
-        <div class="result-field-value">${d.producto || '—'}</div>
+        <div class="result-field-value">${mapeo.producto || '—'}</div>
+      </div>
+      <div class="result-field">
+        <div class="result-field-label">Código</div>
+        <div class="result-field-value">${mapeo.codigo || '—'}</div>
       </div>
       <div class="result-field">
         <div class="result-field-label">Toneladas</div>
@@ -1067,12 +1127,19 @@ async function enviarASheets(resultados) {
     sheets_url: sheetsUrl,
     'pestaña': sheetsTab,
     planta: PLANTA_KEY,
-    tiquetes: resultados.map(d => ({
-      ...d,
-      planta: esCaloto ? 'Caloto' : 'Girón',
-      bascula: esCaloto ? 'AL08' : '08',
-      fecha_registro: new Date().toISOString()
-    }))
+    tiquetes: resultados.map(d => {
+      const m = mapearProducto(d.producto_original || d.producto, d.origen);
+      return {
+        ...d,
+        planta: esCaloto ? 'Caloto' : 'Girón',
+        bascula: esCaloto ? 'AL08' : '08',
+        fecha_registro: new Date().toISOString(),
+        // Campos mapeados (lo que va al Sheet)
+        origen: m.origen,
+        producto: m.producto,
+        codigo: m.codigo
+      };
+    })
   };
 
   // Apps Script Web Apps no aceptan preflight CORS con Content-Type JSON.
