@@ -929,7 +929,7 @@ Extrae EXACTAMENTE estos campos y responde SOLO con JSON válido, sin texto adic
   "origen": "país de origen del producto. Valores posibles: 'Americano' (EEUU/US), 'Boliviano', 'Argentino', 'Canadiense'. Buscar pistas en: descripción del producto, motonave, puerto de origen, transportadora. Si no se puede determinar, usar null.",
   "cantidad_toneladas": "cantidad en toneladas como ENTERO de 5 dígitos SIN puntuación. Ejemplo: si el tiquete dice '35,500 kg' o '35.500' o '35500', extrae 35500 (sin comas, sin puntos, sin espacios, sin unidades).",
   "placa_vehiculo": "placa del vehículo",
-  "puerto_origen": "puerto de origen si aparece",
+  "puerto_origen": "puerto de origen del producto. DEBE ser EXACTAMENTE UNO de estos 6 valores: 'Santa Marta', 'Soc. Portuaria Barranquilla', 'Palermo', 'SPRBUN', 'OPP Graneles', 'Compas Cascajal'. Pistas: Santa Marta -> 'puerto santa marta', 'PSM'. Soc. Portuaria Barranquilla -> 'sociedad portuaria de barranquilla', 'SPB'. Palermo -> 'palermo', 'sociedad portuaria palermo'. SPRBUN -> 'SPRBUN', 'sociedad portuaria buenaventura'. OPP Graneles -> 'OPP', 'graneles'. Compas Cascajal -> 'compas', 'cascajal', 'cascajas'. Si no se puede determinar, usar null.",
   "transportadora": "nombre de la transportadora si aparece",
   "fecha": "fecha del tiquete si aparece"
 }
@@ -1026,6 +1026,19 @@ Si un campo no es legible o no aparece, usa null. No agregues texto antes ni des
   throw new Error(ultimoError || 'No se pudo procesar con ningún modelo Gemini');
 }
 
+// ─── Normalizacion de Puerto ────────────────────────────────────
+function normalizarPuerto(texto) {
+  if (!texto) return '';
+  const t = String(texto).toUpperCase();
+  if (t.includes('SANTA MARTA') || t.includes('PSM')) return 'Santa Marta';
+  if (t.includes('PALERMO')) return 'Palermo';
+  if (t.includes('SPRBUN') || (t.includes('PORTUARIA') && t.includes('BUENAVENTURA'))) return 'SPRBUN';
+  if (t.includes('OPP') || t.includes('GRANELES')) return 'OPP Graneles';
+  if (t.includes('COMPAS') || t.includes('CASCAJAL') || t.includes('CASCAJAS')) return 'Compas Cascajal';
+  if (t.includes('BARRANQUILLA') || t.includes('SPB')) return 'Soc. Portuaria Barranquilla';
+  return texto;
+}
+
 // ─── Limpieza de Toneladas ──────────────────────────────────────
 // Convierte cualquier formato (35,500 / 35.500 / "35500 kg" / "35 500") a entero limpio
 function limpiarToneladas(valor) {
@@ -1120,7 +1133,7 @@ function renderResultCard(d) {
         <div class="result-field-label">Placa</div>
         <div class="result-field-value">${d.placa_vehiculo || '—'}</div>
       </div>
-      ${d.puerto_origen ? `<div class="result-field"><div class="result-field-label">Puerto</div><div class="result-field-value">${d.puerto_origen}</div></div>` : ''}
+      ${normalizarPuerto(d.puerto_origen) ? `<div class="result-field"><div class="result-field-label">Puerto</div><div class="result-field-value">${normalizarPuerto(d.puerto_origen)}</div></div>` : ''}
       ${d.fecha ? `<div class="result-field"><div class="result-field-label">Fecha</div><div class="result-field-value">${d.fecha}</div></div>` : ''}
     </div>
   `;
@@ -1154,7 +1167,8 @@ async function enviarASheets(resultados) {
         origen: m.origen,
         producto: m.producto,
         codigo: m.codigo,
-        cantidad_toneladas: toneladasLimpias
+        cantidad_toneladas: toneladasLimpias,
+        puerto_origen: normalizarPuerto(d.puerto_origen)
       };
     })
   };
